@@ -192,7 +192,6 @@ export default function CallerEditor() {
             style={{
               borderColor: isChosen ? colors.accent : colors.border,
               borderWidth: isChosen ? 2 : StyleSheet.hairlineWidth,
-              opacity: allowed ? 1 : 0.6,
             }}
           >
             <Pressable

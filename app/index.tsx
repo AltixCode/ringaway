@@ -232,7 +232,6 @@ export default function Home() {
                     borderWidth: StyleSheet.hairlineWidth,
                     borderColor: isChosen ? colors.accent : colors.border,
                     backgroundColor: isChosen ? withAlpha(colors.accent, 0.16) : colors.surface,
-                    opacity: allowed ? 1 : 0.55,
                   },
                 ]}
               >
