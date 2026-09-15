@@ -15,7 +15,22 @@ process.env.EXPO_OS = process.env.EXPO_OS || 'ios';
 
 // Reanimated's worklet runtime is native-only. The shipped mock renders the
 // animated components synchronously, which is what component tests need.
-jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+jest.mock('react-native-reanimated', () => {
+  // Reanimated's own mock omits getUseOfValueInStyleWarning — its source literally says
+  // "ADD ME IF NEEDED". The babel plugin injects a call to it around every inline style
+  // object, so without this any screen with an inline style throws, in tests only.
+  const mock = require('react-native-reanimated/mock');
+  return { ...mock, getUseOfValueInStyleWarning: () => undefined };
+});
+
+// The picker is a native module: in tests it is whatever a test says it returned. Every
+// test that opens it sets its own resolved value; the default is a cancelled pick, which
+// is the case a screen most easily gets wrong.
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: jest.fn(async () => ({ canceled: true, assets: null })),
+  requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true, status: 'granted' })),
+  MediaTypeOptions: { Images: 'Images' },
+}));
 
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),

@@ -54,6 +54,13 @@ function RootNavigator() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ title: t('settingsTitle') }} />
+        <Stack.Screen name="caller" options={{ title: t('callersTitle') }} />
+        <Stack.Screen
+          name="call"
+          // No header and no swipe back: this screen imitates a call, and a call screen
+          // is left by answering or declining it, not by a navigation gesture.
+          options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }}
+        />
         <Stack.Screen
           name="paywall"
           options={{ title: '', presentation: 'modal', headerShown: false }}

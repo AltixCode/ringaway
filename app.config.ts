@@ -115,6 +115,7 @@ const config: ExpoConfig = {
         android: { compileSdkVersion: 36, targetSdkVersion: 36, minSdkVersion: 24 },
       },
     ],
+    ["expo-image-picker",{"photosPermission":"Ringaway uses a photo you pick to show that caller on the incoming-call screen. The photo stays on this device and is never uploaded."}],
   ],
   runtimeVersion: { policy: 'appVersion' },
   owner: process.env.EXPO_OWNER ?? 'altixcodes-team',
