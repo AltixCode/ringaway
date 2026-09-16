@@ -19,6 +19,7 @@ import {
 import { useCallStore } from '@/store/useCallStore';
 import { usePremiumStore } from '@/store/usePremiumStore';
 import { MIN_TOUCH_TARGET, useTheme, withAlpha } from '@/theme';
+import { useTabletColumn } from '@/theme/useTabletColumn';
 
 /**
  * The countdown redraws at this rate. Nothing is *counted* here — the remaining time is
@@ -41,6 +42,7 @@ export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, spacing, radius } = useTheme();
+  const tabletColumn = useTabletColumn();
 
   const callers = useCallStore((s) => s.callers);
   const pending = useCallStore((s) => s.pending);
@@ -114,6 +116,8 @@ export default function Home() {
           paddingHorizontal: spacing.base,
           paddingBottom: spacing.xl,
           gap: spacing.base,
+        
+          ...tabletColumn,
         }}
         showsVerticalScrollIndicator={false}
       >
