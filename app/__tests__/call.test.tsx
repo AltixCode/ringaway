@@ -1,4 +1,5 @@
-import { fireEvent, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, waitFor } from '@testing-library/react-native';
+import * as KeepAwake from 'expo-keep-awake';
 import React from 'react';
 import { Vibration } from 'react-native';
 
@@ -6,7 +7,7 @@ import IncomingCall from '../call';
 import { testRouter } from './testRouter';
 import { renderWithProviders } from '@/components/__tests__/renderWithProviders';
 import { t } from '@/i18n';
-import { patternById } from '@/logic/ring';
+import { patternById, RING_TIMEOUT_MS } from '@/logic/ring';
 import { useAdsConsentStore } from '@/store/useAdsConsentStore';
 import { useCallStore } from '@/store/useCallStore';
 import { usePremiumStore } from '@/store/usePremiumStore';
@@ -22,8 +23,13 @@ const caller = {
 beforeEach(() => {
   jest.clearAllMocks();
   usePremiumStore.setState({ isPremium: false, isReady: true });
-  useAdsConsentStore.setState({ consent: { canServeAds: true, offerPrivacyOptions: false } });
-  useCallStore.setState({ callers: [caller], pending: { callerId: 'c1', at: Date.now() } });
+  useAdsConsentStore.setState({
+    consent: { canServeAds: true, offerPrivacyOptions: false },
+  });
+  useCallStore.setState({
+    callers: [caller],
+    pending: { callerId: 'c1', at: Date.now() },
+  });
 });
 
 describe('Incoming call', () => {
@@ -84,5 +90,35 @@ describe('Incoming call', () => {
   it('shows no ad while the phone is ringing', async () => {
     const { queryByTestId } = await renderWithProviders(<IncomingCall />);
     expect(queryByTestId('banner-ad')).toBeNull();
+  });
+
+  // Without this the OS is free to dim and then lock the screen while the call rings, which
+  // leaves the vibration running with no reachable button to stop it — a force-close is the
+  // only way out. Reported by a tester as the screen "slowly dims to white" with dead buttons.
+  it('keeps the screen awake while a call is on it, and releases it on the way out', async () => {
+    const activate = jest.spyOn(KeepAwake, 'activateKeepAwakeAsync').mockResolvedValue(undefined);
+    const deactivate = jest.spyOn(KeepAwake, 'deactivateKeepAwake').mockResolvedValue(undefined);
+    const { unmount } = await renderWithProviders(<IncomingCall />);
+    await waitFor(() => expect(activate).toHaveBeenCalled());
+    expect(deactivate).not.toHaveBeenCalled();
+    unmount();
+    await waitFor(() => expect(deactivate).toHaveBeenCalled());
+    activate.mockRestore();
+    deactivate.mockRestore();
+  });
+
+  // A safety net independent of keep-awake: even if the screen does dim or lock, or a device
+  // ignores keep-awake under a power-saving mode, a call that is never answered must eventually
+  // stop ringing on its own rather than vibrate forever.
+  it('gives up and leaves an unanswered call once it has rung too long', async () => {
+    jest.useFakeTimers();
+    const cancelVibration = jest.spyOn(Vibration, 'cancel').mockImplementation(() => undefined);
+    await renderWithProviders(<IncomingCall />);
+    act(() => jest.advanceTimersByTime(RING_TIMEOUT_MS));
+    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith('/'));
+    expect(cancelVibration).toHaveBeenCalled();
+    expect(useCallStore.getState().pending).toBeNull();
+    cancelVibration.mockRestore();
+    jest.useRealTimers();
   });
 });

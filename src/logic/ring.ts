@@ -22,27 +22,27 @@ export interface RingPattern {
 }
 
 /** The one pattern a free user gets. */
-export const FREE_PATTERN = "standard";
+export const FREE_PATTERN = 'standard';
 
 export const RING_PATTERNS: RingPattern[] = [
   // A UK-style double ring: two short pulses, then a long gap.
   {
-    id: "standard",
-    nameKey: "ringStandard",
+    id: 'standard',
+    nameKey: 'ringStandard',
     pattern: [0, 400, 200, 400, 2000],
   },
   // One long pulse, the North American cadence.
-  { id: "single", nameKey: "ringSingle", pattern: [0, 1000, 3000] },
+  { id: 'single', nameKey: 'ringSingle', pattern: [0, 1000, 3000] },
   // Insistent: short, fast, no long gap to hide behind.
   {
-    id: "urgent",
-    nameKey: "ringUrgent",
+    id: 'urgent',
+    nameKey: 'ringUrgent',
     pattern: [0, 200, 150, 200, 150, 200, 700],
   },
   // Barely there, for getting out of something quietly.
-  { id: "gentle", nameKey: "ringGentle", pattern: [0, 150, 2500] },
+  { id: 'gentle', nameKey: 'ringGentle', pattern: [0, 150, 2500] },
   // A single tap, then silence — reads as a message rather than a call.
-  { id: "onceOnly", nameKey: "ringOnceOnly", pattern: [0, 300] },
+  { id: 'onceOnly', nameKey: 'ringOnceOnly', pattern: [0, 300] },
 ];
 
 export const patternById = (id: string): RingPattern =>
@@ -90,10 +90,26 @@ export function isDue(ringAtMs: number, now: number): boolean {
   return now >= ringAtMs;
 }
 
+/**
+ * How long an unanswered call may keep ringing before it is treated as missed.
+ *
+ * A real phone stops ringing on its own. This one must too: the call screen has no keep-awake
+ * guarantee that survives every device and power setting, and a vibration pattern with no cap
+ * is a vibration that can outlast the user's ability to reach the buttons that stop it — declined
+ * only from behind an OS auto-lock. A hard ceiling here is what makes that recoverable without
+ * a force-close, no matter what else on the screen goes wrong.
+ */
+export const RING_TIMEOUT_MS = 45_000;
+
+/** Whether a call that started ringing at `startedAt` should now be treated as missed. */
+export function isMissed(startedAt: number, now: number): boolean {
+  return now - startedAt >= RING_TIMEOUT_MS;
+}
+
 /** `m:ss`, for the countdown. */
 export function formatCountdown(ms: number): string {
   const total = Math.ceil(ms / 1000);
-  return `${Math.floor(total / 60)}:${`${total % 60}`.padStart(2, "0")}`;
+  return `${Math.floor(total / 60)}:${`${total % 60}`.padStart(2, '0')}`;
 }
 
 export interface Caller {
@@ -109,12 +125,12 @@ export interface Caller {
 /** Initials for a caller with no photo. At most two letters, uppercased. */
 export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
+  if (words.length === 0) return '?';
   const letters = words.slice(0, 2).map((w) => w.charAt(0));
-  return letters.join("").toUpperCase();
+  return letters.join('').toUpperCase();
 }
 
 /** A caller is usable when it has a name; everything else has a sensible default. */
 export function isValidCaller(caller: Partial<Caller>): boolean {
-  return typeof caller.name === "string" && caller.name.trim().length > 0;
+  return typeof caller.name === 'string' && caller.name.trim().length > 0;
 }

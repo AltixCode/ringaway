@@ -8,11 +8,13 @@ import {
   formatCountdown,
   initialsOf,
   isDue,
+  isMissed,
   isValidCaller,
   msUntil,
   patternById,
   patternMs,
   ringAt,
+  RING_TIMEOUT_MS,
 } from '../ring';
 
 describe('ring patterns', () => {
@@ -96,6 +98,24 @@ describe('scheduling', () => {
     expect(isDue(1000, 999)).toBe(false);
     expect(isDue(1000, 1000)).toBe(true);
     expect(isDue(1000, 1001)).toBe(true);
+  });
+});
+
+describe('isMissed', () => {
+  // A phone that rings forever is a phone whose screen dims and locks while it does, with no
+  // way left to reach the buttons that would stop it — so ringing must end on its own.
+  it('is not missed before the timeout elapses', () => {
+    expect(isMissed(0, RING_TIMEOUT_MS - 1)).toBe(false);
+  });
+
+  it('is missed once the timeout elapses', () => {
+    expect(isMissed(0, RING_TIMEOUT_MS)).toBe(true);
+    expect(isMissed(0, RING_TIMEOUT_MS + 1)).toBe(true);
+  });
+
+  it('measures from the ring start, not from zero', () => {
+    expect(isMissed(10_000, 10_000 + RING_TIMEOUT_MS - 1)).toBe(false);
+    expect(isMissed(10_000, 10_000 + RING_TIMEOUT_MS)).toBe(true);
   });
 });
 

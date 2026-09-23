@@ -1,5 +1,6 @@
 import Feather from '@expo/vector-icons/Feather';
 import * as Haptics from 'expo-haptics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Vibration, View } from 'react-native';
@@ -7,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui';
 import { t } from '@/i18n';
-import { formatCountdown, initialsOf, patternById } from '@/logic/ring';
+import { formatCountdown, initialsOf, isMissed, patternById } from '@/logic/ring';
 import { shouldShowInterstitial } from '@/monetization/adPolicy';
 import { shouldShowAds } from '@/monetization/entitlements';
 import { showInterstitial } from '@/monetization/interstitial';
@@ -17,6 +18,9 @@ import { MIN_TOUCH_TARGET, readableTextOn, useTheme, withAlpha } from '@/theme';
 
 /** How often the connected-call timer redraws. It is derived from a start time, never counted. */
 const TICK_MS = 500;
+
+/** Distinguishes this screen's keep-awake lock so it never lingers past its own unmount. */
+const KEEP_AWAKE_TAG = 'incoming-call';
 
 /**
  * The call itself.
@@ -33,6 +37,15 @@ export default function IncomingCall() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, spacing, radius } = useTheme();
+
+  // Without this the OS is free to dim and then lock the screen while a call is showing —
+  // which leaves the vibration running with no reachable button to stop it, since the ring
+  // and its buttons are only on this screen. Held for as long as this screen is mounted,
+  // answered or not, the same way a system call screen holds it.
+  useEffect(() => {
+    void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    return () => void deactivateKeepAwake(KEEP_AWAKE_TAG);
+  }, []);
 
   const pending = useCallStore((s) => s.pending);
   const callerById = useCallStore((s) => s.callerById);
@@ -83,6 +96,20 @@ export default function IncomingCall() {
     router.replace('/');
   };
 
+  // A safety net independent of keep-awake: a call that is never answered must stop ringing
+  // on its own, in case the screen dims or locks anyway — a device in a power-saving mode can
+  // override keep-awake, and this is the only thing that still ends the vibration if it does.
+  useEffect(() => {
+    if (!pending || !caller || answeredAt !== null) return;
+    const id = setInterval(() => {
+      if (isMissed(pending.at, Date.now())) leave();
+    }, TICK_MS);
+    return () => clearInterval(id);
+    // `leave` is a fresh closure every render; depending on it would restart this ticker
+    // on every render instead of only when the call itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, caller, answeredAt]);
+
   const answer = () => {
     Vibration.cancel();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -111,7 +138,10 @@ export default function IncomingCall() {
         <View
           style={[
             styles.avatar,
-            { borderRadius: radius.full, backgroundColor: withAlpha(colors.accent, 0.18) },
+            {
+              borderRadius: radius.full,
+              backgroundColor: withAlpha(colors.accent, 0.18),
+            },
           ]}
         >
           {caller.photoUri ? (
@@ -209,7 +239,12 @@ function CallAction({
 const styles = StyleSheet.create({
   screen: { flex: 1, justifyContent: 'space-between' },
   header: { alignItems: 'center' },
-  avatar: { width: 132, height: 132, alignItems: 'center', justifyContent: 'center' },
+  avatar: {
+    width: 132,
+    height: 132,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarImage: { width: 132, height: 132 },
   footer: { alignItems: 'center' },
   note: { textAlign: 'center' },
