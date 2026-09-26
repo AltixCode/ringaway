@@ -1,18 +1,32 @@
-import Feather from '@expo/vector-icons/Feather';
-import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Feather from "@expo/vector-icons/Feather";
+import * as ImagePicker from "expo-image-picker";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Button, Card, Text } from '@/components/ui';
-import { t } from '@/i18n';
-import { FREE_PATTERN, RING_PATTERNS, canUsePattern, initialsOf } from '@/logic/ring';
-import { useCallStore } from '@/store/useCallStore';
-import { usePremiumStore } from '@/store/usePremiumStore';
-import { MIN_TOUCH_TARGET, useTheme, withAlpha } from '@/theme';
+import { Button, Card, Text } from "@/components/ui";
+import { t } from "@/i18n";
+import {
+  FREE_PATTERN,
+  RING_PATTERNS,
+  canUsePattern,
+  initialsOf,
+} from "@/logic/ring";
+import { useCallStore } from "@/store/useCallStore";
+import { usePremiumStore } from "@/store/usePremiumStore";
+import { MIN_TOUCH_TARGET, useTheme, withAlpha } from "@/theme";
+import { useTabletColumn } from "@/theme/useTabletColumn";
 
-import type { TranslationKey } from '@/i18n';
+import type { TranslationKey } from "@/i18n";
 
 /**
  * Add or edit one caller.
@@ -25,6 +39,7 @@ export default function CallerEditor() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, spacing, radius } = useTheme();
+  const tabletColumn = useTabletColumn();
   const params = useLocalSearchParams<{ id?: string }>();
 
   const callerById = useCallStore((s) => s.callerById);
@@ -34,16 +49,20 @@ export default function CallerEditor() {
 
   const existing = params.id ? callerById(params.id) : undefined;
 
-  const [name, setName] = useState(existing?.name ?? '');
-  const [label, setLabel] = useState(existing?.label ?? '');
-  const [photoUri, setPhotoUri] = useState<string | null>(existing?.photoUri ?? null);
-  const [patternId, setPatternId] = useState(existing?.patternId ?? FREE_PATTERN);
+  const [name, setName] = useState(existing?.name ?? "");
+  const [label, setLabel] = useState(existing?.label ?? "");
+  const [photoUri, setPhotoUri] = useState<string | null>(
+    existing?.photoUri ?? null,
+  );
+  const [patternId, setPatternId] = useState(
+    existing?.patternId ?? FREE_PATTERN,
+  );
   const [invalid, setInvalid] = useState(false);
 
   const offerUnlock = (titleKey: TranslationKey) => {
-    Alert.alert(t(titleKey), t('unlockBody'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('removeAdsCta'), onPress: () => router.push('/paywall') },
+    Alert.alert(t(titleKey), t("unlockBody"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("removeAdsCta"), onPress: () => router.push("/paywall") },
     ]);
   };
 
@@ -51,11 +70,11 @@ export default function CallerEditor() {
     // Deliberately before the picker opens. Asking for photo-library permission to serve a
     // feature the user has not bought is a prompt they cannot act on.
     if (!isPremium) {
-      offerUnlock('photoLockedTitle');
+      offerUnlock("photoLockedTitle");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -67,7 +86,7 @@ export default function CallerEditor() {
 
   const pickPattern = (id: string) => {
     if (!canUsePattern(id, isPremium)) {
-      router.push('/paywall');
+      router.push("/paywall");
       return;
     }
     setPatternId(id);
@@ -82,15 +101,15 @@ export default function CallerEditor() {
       { id: existing?.id, name, label, photoUri, patternId },
       isPremium,
     );
-    if (outcome === 'limit-reached') {
-      offerUnlock('callerLimitTitle');
+    if (outcome === "limit-reached") {
+      offerUnlock("callerLimitTitle");
       return;
     }
-    if (outcome === 'locked-photo' || outcome === 'locked-pattern') {
-      router.push('/paywall');
+    if (outcome === "locked-photo" || outcome === "locked-pattern") {
+      router.push("/paywall");
       return;
     }
-    if (outcome === 'invalid') {
+    if (outcome === "invalid") {
       setInvalid(true);
       return;
     }
@@ -122,13 +141,17 @@ export default function CallerEditor() {
         paddingHorizontal: spacing.base,
         paddingBottom: insets.bottom + spacing.xl,
         gap: spacing.base,
+        ...tabletColumn,
       }}
     >
       <View style={styles.photoRow}>
         <View
           style={[
             styles.avatar,
-            { borderRadius: radius.full, backgroundColor: withAlpha(colors.accent, 0.18) },
+            {
+              borderRadius: radius.full,
+              backgroundColor: withAlpha(colors.accent, 0.18),
+            },
           ]}
         >
           {photoUri ? (
@@ -143,45 +166,52 @@ export default function CallerEditor() {
         </View>
         <View style={[styles.grow, { gap: spacing.sm }]}>
           <Button
-            label={t('photoCta')}
+            label={t("photoCta")}
             variant="secondary"
             icon="image"
             onPress={() => void pickPhoto()}
           />
           {photoUri ? (
-            <Button label={t('photoRemove')} variant="ghost" onPress={() => setPhotoUri(null)} />
+            <Button
+              label={t("photoRemove")}
+              variant="ghost"
+              onPress={() => setPhotoUri(null)}
+            />
           ) : null}
         </View>
       </View>
 
       <Text variant="caption" tone="muted">
-        {t('nameLabel')}
+        {t("nameLabel")}
       </Text>
       <TextInput
-        accessibilityLabel={t('nameLabel')}
+        accessibilityLabel={t("nameLabel")}
         value={name}
         onChangeText={(next) => {
           setName(next);
           setInvalid(false);
         }}
-        placeholder={t('nameLabel')}
+        placeholder={t("nameLabel")}
         placeholderTextColor={colors.textMuted}
-        style={[field, invalid ? { borderColor: colors.danger, borderWidth: 2 } : null]}
+        style={[
+          field,
+          invalid ? { borderColor: colors.danger, borderWidth: 2 } : null,
+        ]}
       />
 
       <Text variant="caption" tone="muted">
-        {t('labelLabel')}
+        {t("labelLabel")}
       </Text>
       <TextInput
-        accessibilityLabel={t('labelLabel')}
+        accessibilityLabel={t("labelLabel")}
         value={label}
         onChangeText={setLabel}
-        placeholder={t('labelLabel')}
+        placeholder={t("labelLabel")}
         placeholderTextColor={colors.textMuted}
         style={field}
       />
 
-      <Text variant="heading">{t('patternTitle')}</Text>
+      <Text variant="heading">{t("patternTitle")}</Text>
       {RING_PATTERNS.map((pattern) => {
         const allowed = canUsePattern(pattern.id, isPremium);
         const patternName = t(pattern.nameKey as TranslationKey);
@@ -197,7 +227,9 @@ export default function CallerEditor() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                allowed ? patternName : t('patternLocked', { name: patternName })
+                allowed
+                  ? patternName
+                  : t("patternLocked", { name: patternName })
               }
               accessibilityState={{ selected: isChosen, disabled: !allowed }}
               onPress={() => pickPattern(pattern.id)}
@@ -206,16 +238,18 @@ export default function CallerEditor() {
               <Text variant="body" style={styles.grow}>
                 {patternName}
               </Text>
-              {allowed ? null : <Feather name="lock" size={16} color={colors.textMuted} />}
+              {allowed ? null : (
+                <Feather name="lock" size={16} color={colors.textMuted} />
+              )}
             </Pressable>
           </Card>
         );
       })}
 
-      <Button label={t('saveCaller')} icon="check" onPress={save} />
+      <Button label={t("saveCaller")} icon="check" onPress={save} />
       {existing ? (
         <Button
-          label={t('deleteCaller', { name: existing.name })}
+          label={t("deleteCaller", { name: existing.name })}
           variant="danger"
           icon="trash-2"
           onPress={remove}
@@ -227,12 +261,17 @@ export default function CallerEditor() {
 
 const styles = StyleSheet.create({
   grow: { flex: 1 },
-  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  avatar: { width: 88, height: 88, alignItems: 'center', justifyContent: 'center' },
+  photoRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  avatar: {
+    width: 88,
+    height: 88,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarImage: { width: 88, height: 88 },
   patternRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     minHeight: MIN_TOUCH_TARGET,
   },
