@@ -1,33 +1,50 @@
-import Feather from '@expo/vector-icons/Feather';
-import * as Haptics from 'expo-haptics';
-import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Vibration, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Feather from "@expo/vector-icons/Feather";
+import * as Haptics from "expo-haptics";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Image,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Vibration,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Text } from '@/components/ui';
-import { t } from '@/i18n';
-import { formatCountdown, initialsOf, isMissed, patternById } from '@/logic/ring';
-import { shouldShowInterstitial } from '@/monetization/adPolicy';
-import { shouldShowAds } from '@/monetization/entitlements';
-import { showInterstitial } from '@/monetization/interstitial';
-import { useCallStore } from '@/store/useCallStore';
-import { usePremiumStore } from '@/store/usePremiumStore';
-import { MIN_TOUCH_TARGET, readableTextOn, useTheme, withAlpha } from '@/theme';
+import { Text } from "@/components/ui";
+import { t } from "@/i18n";
+import {
+  formatCountdown,
+  initialsOf,
+  isMissed,
+  patternById,
+} from "@/logic/ring";
+import { vibrationPhases } from "@/logic/vibrationLoop";
+import { shouldShowInterstitial } from "@/monetization/adPolicy";
+import { shouldShowAds } from "@/monetization/entitlements";
+import { showInterstitial } from "@/monetization/interstitial";
+import { cancelCallNotification } from "@/notifications/callNotifications";
+import { useCallStore } from "@/store/useCallStore";
+import { usePremiumStore } from "@/store/usePremiumStore";
+import { MIN_TOUCH_TARGET, readableTextOn, useTheme, withAlpha } from "@/theme";
 
 /** How often the connected-call timer redraws. It is derived from a start time, never counted. */
 const TICK_MS = 500;
 
 /** Distinguishes this screen's keep-awake lock so it never lingers past its own unmount. */
-const KEEP_AWAKE_TAG = 'incoming-call';
+const KEEP_AWAKE_TAG = "incoming-call";
 
 /**
  * The call itself.
  *
- * **What this is.** A ring and a vibration pattern on a screen that looks like a call. There
- * is no audio and nobody speaks — `silentNote` says so on the screen, because a user who
- * expects a voice has been misled, and so has a reviewer.
+ * **What this is.** A ring, a vibration pattern, and a screen that looks like a call. The
+ * ring is a real, audible sound — the scheduled notification in
+ * `src/notifications/callNotifications.ts` plays it, using the device's own ringtone/
+ * notification sound, not a bundled asset. What is not real is a voice: nobody is on the
+ * other end, and `silentNote` says so on the screen, because a user who expects a voice has
+ * been misled, and so has a reviewer.
  *
  * No banner here: the screen imitates a system call screen, and an ad on it is both
  * dishonest and an AdMob placement problem. The interstitial comes after the call ends,
@@ -63,14 +80,53 @@ export default function IncomingCall() {
   // Nothing pending means a stale deep link or a call cancelled elsewhere. Leaving is the
   // only honest option: the alternative is a call from nobody.
   useEffect(() => {
-    if (!pending || !caller) router.replace('/');
+    if (!pending || !caller) router.replace("/");
   }, [pending, caller, router]);
 
   useEffect(() => {
     if (!caller || answeredAt !== null) return;
-    Vibration.vibrate(patternById(caller.patternId).pattern, true);
-    return () => Vibration.cancel();
+    const pattern = patternById(caller.patternId).pattern;
+
+    // Android's native module drives pattern+repeat entirely in the OS -- no bug there, and
+    // it is the more accurate playback of the two.
+    if (Platform.OS !== "ios") {
+      Vibration.vibrate(pattern, true);
+      return () => Vibration.cancel();
+    }
+
+    // iOS: React Native's own `Vibration.vibrate(pattern, repeat)` drives playback through
+    // JS-module-level singleton state (`_vibrating` / `_id` in Vibration.js), shared by the
+    // whole app rather than owned by this screen. If a second call's vibrate() lands before
+    // the first one's cancel() has actually taken effect, the singleton's guard silently
+    // drops the new pattern and leaves the FIRST loop running with nothing able to stop it --
+    // exactly what testers hit: a stuck, sometimes-wrong-sounding, uncancellable vibration
+    // with no button doing anything short of a force-close. Driving single-shot
+    // `Vibration.vibrate()` calls off a timer this screen owns sidesteps that singleton
+    // entirely, so this effect's own cleanup is always sufficient on its own to stop it.
+    const phases = vibrationPhases(pattern);
+    if (phases.length === 0) return;
+    let index = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const step = () => {
+      const phase = phases[index % phases.length]!;
+      if (phase.on) Vibration.vibrate();
+      index += 1;
+      timer = setTimeout(step, phase.ms);
+    };
+    step();
+    return () => {
+      if (timer) clearTimeout(timer);
+      // Belt and suspenders: stops anything still in flight from RN's own API too.
+      Vibration.cancel();
+    };
   }, [caller, answeredAt]);
+
+  // The call is being shown in-app now, one way or another -- answered, declined, or missed
+  // out from under the scheduled notification. Either way that notification must not go on
+  // ringing from the notification shade once this screen has taken over.
+  useEffect(() => {
+    void cancelCallNotification();
+  }, []);
 
   useEffect(() => {
     if (answeredAt === null) return;
@@ -93,7 +149,7 @@ export default function IncomingCall() {
     ) {
       showInterstitial();
     }
-    router.replace('/');
+    router.replace("/");
   };
 
   // A safety net independent of keep-awake: a call that is never answered must stop ringing
@@ -133,7 +189,7 @@ export default function IncomingCall() {
     >
       <View style={[styles.header, { gap: spacing.sm }]}>
         <Text variant="caption" tone="muted">
-          {answeredAt === null ? t('incomingCall') : t('inCall')}
+          {answeredAt === null ? t("incomingCall") : t("inCall")}
         </Text>
         <View
           style={[
@@ -161,26 +217,28 @@ export default function IncomingCall() {
           </Text>
         ) : null}
         {answeredAt === null ? null : (
-          <Text variant="heading">{formatCountdown(Math.max(0, now - answeredAt))}</Text>
+          <Text variant="heading">
+            {formatCountdown(Math.max(0, now - answeredAt))}
+          </Text>
         )}
       </View>
 
       <View style={[styles.footer, { gap: spacing.base }]}>
         <Text variant="caption" tone="muted" style={styles.note}>
-          {t('silentNote')}
+          {t("silentNote")}
         </Text>
         <View style={styles.actions}>
           {answeredAt === null ? (
             <>
               <CallAction
-                label={t('declineCta')}
+                label={t("declineCta")}
                 icon="phone-off"
                 background={colors.danger}
                 radius={radius.full}
                 onPress={leave}
               />
               <CallAction
-                label={t('acceptCta')}
+                label={t("acceptCta")}
                 icon="phone-call"
                 background={colors.success}
                 radius={radius.full}
@@ -189,7 +247,7 @@ export default function IncomingCall() {
             </>
           ) : (
             <CallAction
-              label={t('endCta')}
+              label={t("endCta")}
               icon="phone-off"
               background={colors.danger}
               radius={radius.full}
@@ -226,7 +284,10 @@ function CallAction({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={[styles.action, { borderRadius: radius, backgroundColor: background }]}
+      style={[
+        styles.action,
+        { borderRadius: radius, backgroundColor: background },
+      ]}
     >
       <Feather name={icon} size={26} color={readableTextOn(background)} />
       <Text variant="caption" style={{ color: readableTextOn(background) }}>
@@ -237,23 +298,23 @@ function CallAction({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'space-between' },
-  header: { alignItems: 'center' },
+  screen: { flex: 1, justifyContent: "space-between" },
+  header: { alignItems: "center" },
   avatar: {
     width: 132,
     height: 132,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarImage: { width: 132, height: 132 },
-  footer: { alignItems: 'center' },
-  note: { textAlign: 'center' },
-  actions: { flexDirection: 'row', justifyContent: 'center', gap: 48 },
+  footer: { alignItems: "center" },
+  note: { textAlign: "center" },
+  actions: { flexDirection: "row", justifyContent: "center", gap: 48 },
   action: {
     minWidth: 76,
     minHeight: Math.max(76, MIN_TOUCH_TARGET),
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     gap: 4,
   },
 });

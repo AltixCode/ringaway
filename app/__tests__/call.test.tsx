@@ -1,23 +1,23 @@
-import { act, fireEvent, waitFor } from '@testing-library/react-native';
-import * as KeepAwake from 'expo-keep-awake';
-import React from 'react';
-import { Vibration } from 'react-native';
+import { act, fireEvent, waitFor } from "@testing-library/react-native";
+import * as KeepAwake from "expo-keep-awake";
+import React from "react";
+import { Vibration } from "react-native";
 
-import IncomingCall from '../call';
-import { testRouter } from './testRouter';
-import { renderWithProviders } from '@/components/__tests__/renderWithProviders';
-import { t } from '@/i18n';
-import { patternById, RING_TIMEOUT_MS } from '@/logic/ring';
-import { useAdsConsentStore } from '@/store/useAdsConsentStore';
-import { useCallStore } from '@/store/useCallStore';
-import { usePremiumStore } from '@/store/usePremiumStore';
+import IncomingCall from "../call";
+import { testRouter } from "./testRouter";
+import { renderWithProviders } from "@/components/__tests__/renderWithProviders";
+import { t } from "@/i18n";
+import { RING_TIMEOUT_MS } from "@/logic/ring";
+import { useAdsConsentStore } from "@/store/useAdsConsentStore";
+import { useCallStore } from "@/store/useCallStore";
+import { usePremiumStore } from "@/store/usePremiumStore";
 
 const caller = {
-  id: 'c1',
-  name: 'Mum',
-  label: 'Home',
+  id: "c1",
+  name: "Mum",
+  label: "Home",
   photoUri: null,
-  patternId: 'urgent',
+  patternId: "urgent",
 };
 
 beforeEach(() => {
@@ -28,76 +28,118 @@ beforeEach(() => {
   });
   useCallStore.setState({
     callers: [caller],
-    pending: { callerId: 'c1', at: Date.now() },
+    pending: { callerId: "c1", at: Date.now() },
   });
 });
 
-describe('Incoming call', () => {
-  it('shows the caller, and their initials when there is no photo', async () => {
+describe("Incoming call", () => {
+  it("shows the caller, and their initials when there is no photo", async () => {
     const { getByText } = await renderWithProviders(<IncomingCall />);
-    expect(getByText('Mum')).toBeTruthy();
-    expect(getByText('Home')).toBeTruthy();
-    expect(getByText('M')).toBeTruthy();
-    expect(getByText(t('incomingCall'))).toBeTruthy();
+    expect(getByText("Mum")).toBeTruthy();
+    expect(getByText("Home")).toBeTruthy();
+    expect(getByText("M")).toBeTruthy();
+    expect(getByText(t("incomingCall"))).toBeTruthy();
   });
 
-  it('vibrates with the caller’s own pattern, repeating until answered', async () => {
-    const vibrate = jest.spyOn(Vibration, 'vibrate').mockImplementation(() => undefined);
-    await renderWithProviders(<IncomingCall />);
-    expect(vibrate).toHaveBeenCalledWith(patternById('urgent').pattern, true);
-    vibrate.mockRestore();
+  // React Native's own `Vibration.vibrate(pattern, true)` drives iOS playback through
+  // JS-module-level singleton state shared by the whole app (`_vibrating` / `_id` in RN's
+  // Vibration.js): a second call before a first one's cancel() has landed is silently
+  // dropped, leaving the stale loop running with nothing able to stop it. That is the
+  // continuous, sometimes-wrong-sounding, uncancellable vibration testers reported. This
+  // screen sidesteps it on iOS by driving single-shot `vibrate()` calls off a timer it owns
+  // and can always clear — see `src/logic/vibrationLoop.ts`.
+  it("vibrates with the caller’s own pattern on iOS, as single-shot buzzes it owns and can always stop — and stops the moment the call is left", async () => {
+    jest.useFakeTimers();
+    try {
+      const vibrate = jest
+        .spyOn(Vibration, "vibrate")
+        .mockImplementation(() => undefined);
+      const { getByText } = await renderWithProviders(<IncomingCall />);
+      // 'urgent' is [0, 200, 150, 200, 150, 200, 700] -> on 200, off 150, on 200, off 150,
+      // on 200, off 700ms. The first "on" phase fires immediately, as a plain no-arg call —
+      // never the buggy `(pattern, true)` form.
+      expect(vibrate).toHaveBeenCalledTimes(1);
+      expect(vibrate).toHaveBeenLastCalledWith();
+      await act(async () => {
+        jest.advanceTimersByTime(700);
+      });
+      // Three more "on" phases land by 700ms in: at 350ms and again at 700ms.
+      expect(vibrate).toHaveBeenCalledTimes(3);
+      await act(async () => {
+        await fireEvent.press(getByText(t("declineCta")));
+      });
+      const callsAtDecline = vibrate.mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(5000);
+      });
+      // Leaving the call clears this screen's own timer — nothing schedules another buzz.
+      expect(vibrate).toHaveBeenCalledTimes(callsAtDecline);
+      vibrate.mockRestore();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  it('stops vibrating and clears the call when declined', async () => {
-    const cancelVibration = jest.spyOn(Vibration, 'cancel').mockImplementation(() => undefined);
+  it("stops vibrating and clears the call when declined", async () => {
+    const cancelVibration = jest
+      .spyOn(Vibration, "cancel")
+      .mockImplementation(() => undefined);
     const { getByText } = await renderWithProviders(<IncomingCall />);
-    await fireEvent.press(getByText(t('declineCta')));
+    await fireEvent.press(getByText(t("declineCta")));
     expect(cancelVibration).toHaveBeenCalled();
     await waitFor(() => expect(useCallStore.getState().pending).toBeNull());
-    expect(testRouter.replace).toHaveBeenCalledWith('/');
+    expect(testRouter.replace).toHaveBeenCalledWith("/");
     cancelVibration.mockRestore();
   });
 
-  it('answers into a connected call, and stops ringing', async () => {
-    const cancelVibration = jest.spyOn(Vibration, 'cancel').mockImplementation(() => undefined);
-    const { getByText, queryByText } = await renderWithProviders(<IncomingCall />);
-    await fireEvent.press(getByText(t('acceptCta')));
+  it("answers into a connected call, and stops ringing", async () => {
+    const cancelVibration = jest
+      .spyOn(Vibration, "cancel")
+      .mockImplementation(() => undefined);
+    const { getByText, queryByText } = await renderWithProviders(
+      <IncomingCall />,
+    );
+    await fireEvent.press(getByText(t("acceptCta")));
     expect(cancelVibration).toHaveBeenCalled();
-    expect(getByText(t('inCall'))).toBeTruthy();
-    expect(queryByText(t('acceptCta'))).toBeNull();
-    await fireEvent.press(getByText(t('endCta')));
-    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith('/'));
+    expect(getByText(t("inCall"))).toBeTruthy();
+    expect(queryByText(t("acceptCta"))).toBeNull();
+    await fireEvent.press(getByText(t("endCta")));
+    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith("/"));
     cancelVibration.mockRestore();
   });
 
   // The screen is honest about what it is. Without this, a user can reasonably expect
   // a voice on the other end — and a store reviewer reasonably expects one too.
-  it('says plainly that there is no audio', async () => {
+  it("says plainly that there is no audio", async () => {
     const { getByText } = await renderWithProviders(<IncomingCall />);
-    expect(getByText(t('silentNote'))).toBeTruthy();
+    expect(getByText(t("silentNote"))).toBeTruthy();
   });
 
   // Reached with nothing pending — a stale deep link, or a call cancelled on another
   // screen. Anything but leaving would show a call from nobody.
-  it('leaves immediately when there is no pending call', async () => {
+  it("leaves immediately when there is no pending call", async () => {
     useCallStore.setState({ pending: null });
     await renderWithProviders(<IncomingCall />);
-    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith("/"));
   });
 
   // No banner over a ringing phone: the screen imitates a system call screen, and an ad
   // on it is both a bad lie and an AdMob policy problem.
-  it('shows no ad while the phone is ringing', async () => {
+  it("shows no ad while the phone is ringing", async () => {
     const { queryByTestId } = await renderWithProviders(<IncomingCall />);
-    expect(queryByTestId('banner-ad')).toBeNull();
+    expect(queryByTestId("banner-ad")).toBeNull();
   });
 
   // Without this the OS is free to dim and then lock the screen while the call rings, which
   // leaves the vibration running with no reachable button to stop it — a force-close is the
   // only way out. Reported by a tester as the screen "slowly dims to white" with dead buttons.
-  it('keeps the screen awake while a call is on it, and releases it on the way out', async () => {
-    const activate = jest.spyOn(KeepAwake, 'activateKeepAwakeAsync').mockResolvedValue(undefined);
-    const deactivate = jest.spyOn(KeepAwake, 'deactivateKeepAwake').mockResolvedValue(undefined);
+  it("keeps the screen awake while a call is on it, and releases it on the way out", async () => {
+    const activate = jest
+      .spyOn(KeepAwake, "activateKeepAwakeAsync")
+      .mockResolvedValue(undefined);
+    const deactivate = jest
+      .spyOn(KeepAwake, "deactivateKeepAwake")
+      .mockResolvedValue(undefined);
     const { unmount } = await renderWithProviders(<IncomingCall />);
     await waitFor(() => expect(activate).toHaveBeenCalled());
     expect(deactivate).not.toHaveBeenCalled();
@@ -110,12 +152,14 @@ describe('Incoming call', () => {
   // A safety net independent of keep-awake: even if the screen does dim or lock, or a device
   // ignores keep-awake under a power-saving mode, a call that is never answered must eventually
   // stop ringing on its own rather than vibrate forever.
-  it('gives up and leaves an unanswered call once it has rung too long', async () => {
+  it("gives up and leaves an unanswered call once it has rung too long", async () => {
     jest.useFakeTimers();
-    const cancelVibration = jest.spyOn(Vibration, 'cancel').mockImplementation(() => undefined);
+    const cancelVibration = jest
+      .spyOn(Vibration, "cancel")
+      .mockImplementation(() => undefined);
     await renderWithProviders(<IncomingCall />);
     act(() => jest.advanceTimersByTime(RING_TIMEOUT_MS));
-    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(testRouter.replace).toHaveBeenCalledWith("/"));
     expect(cancelVibration).toHaveBeenCalled();
     expect(useCallStore.getState().pending).toBeNull();
     cancelVibration.mockRestore();

@@ -7,6 +7,11 @@
  * millisecond durations — which is computable, testable and real by construction. The paywall
  * says "every ring and vibration pattern" because that is what the app has.
  *
+ * The audible ring itself is real too, but it is not this app's own sound: the scheduled
+ * notification in `src/notifications/callNotifications.ts` plays the device's own ringtone
+ * (iOS) or a ringtone-attributed notification channel (Android) — the same reasoning as
+ * above applies to it, just enforced one layer up instead of by a bundled asset.
+ *
  * Pure and dependency-free: the current time is always passed in, so every scheduling rule is
  * testable without waiting for one.
  */
@@ -22,27 +27,27 @@ export interface RingPattern {
 }
 
 /** The one pattern a free user gets. */
-export const FREE_PATTERN = 'standard';
+export const FREE_PATTERN = "standard";
 
 export const RING_PATTERNS: RingPattern[] = [
   // A UK-style double ring: two short pulses, then a long gap.
   {
-    id: 'standard',
-    nameKey: 'ringStandard',
+    id: "standard",
+    nameKey: "ringStandard",
     pattern: [0, 400, 200, 400, 2000],
   },
   // One long pulse, the North American cadence.
-  { id: 'single', nameKey: 'ringSingle', pattern: [0, 1000, 3000] },
+  { id: "single", nameKey: "ringSingle", pattern: [0, 1000, 3000] },
   // Insistent: short, fast, no long gap to hide behind.
   {
-    id: 'urgent',
-    nameKey: 'ringUrgent',
+    id: "urgent",
+    nameKey: "ringUrgent",
     pattern: [0, 200, 150, 200, 150, 200, 700],
   },
   // Barely there, for getting out of something quietly.
-  { id: 'gentle', nameKey: 'ringGentle', pattern: [0, 150, 2500] },
+  { id: "gentle", nameKey: "ringGentle", pattern: [0, 150, 2500] },
   // A single tap, then silence — reads as a message rather than a call.
-  { id: 'onceOnly', nameKey: 'ringOnceOnly', pattern: [0, 300] },
+  { id: "onceOnly", nameKey: "ringOnceOnly", pattern: [0, 300] },
 ];
 
 export const patternById = (id: string): RingPattern =>
@@ -109,7 +114,7 @@ export function isMissed(startedAt: number, now: number): boolean {
 /** `m:ss`, for the countdown. */
 export function formatCountdown(ms: number): string {
   const total = Math.ceil(ms / 1000);
-  return `${Math.floor(total / 60)}:${`${total % 60}`.padStart(2, '0')}`;
+  return `${Math.floor(total / 60)}:${`${total % 60}`.padStart(2, "0")}`;
 }
 
 export interface Caller {
@@ -125,12 +130,12 @@ export interface Caller {
 /** Initials for a caller with no photo. At most two letters, uppercased. */
 export function initialsOf(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
+  if (words.length === 0) return "?";
   const letters = words.slice(0, 2).map((w) => w.charAt(0));
-  return letters.join('').toUpperCase();
+  return letters.join("").toUpperCase();
 }
 
 /** A caller is usable when it has a name; everything else has a sensible default. */
 export function isValidCaller(caller: Partial<Caller>): boolean {
-  return typeof caller.name === 'string' && caller.name.trim().length > 0;
+  return typeof caller.name === "string" && caller.name.trim().length > 0;
 }

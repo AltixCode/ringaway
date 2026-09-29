@@ -1,12 +1,19 @@
-import Feather from '@expo/vector-icons/Feather';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
-import { AppState, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Feather from "@expo/vector-icons/Feather";
+import { useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  AppState,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BannerAdSlot } from '@/components/BannerAdSlot';
-import { Button, Card, Text } from '@/components/ui';
-import { t } from '@/i18n';
+import { BannerAdSlot } from "@/components/BannerAdSlot";
+import { Button, Card, Text } from "@/components/ui";
+import { t } from "@/i18n";
 import {
   DELAY_PRESETS,
   canUseDelay,
@@ -14,12 +21,17 @@ import {
   initialsOf,
   isDue,
   msUntil,
+  patternById,
   type Caller,
-} from '@/logic/ring';
-import { useCallStore } from '@/store/useCallStore';
-import { usePremiumStore } from '@/store/usePremiumStore';
-import { MIN_TOUCH_TARGET, useTheme, withAlpha } from '@/theme';
-import { useTabletColumn } from '@/theme/useTabletColumn';
+} from "@/logic/ring";
+import {
+  cancelCallNotification,
+  scheduleCallNotification,
+} from "@/notifications/callNotifications";
+import { useCallStore } from "@/store/useCallStore";
+import { usePremiumStore } from "@/store/usePremiumStore";
+import { MIN_TOUCH_TARGET, useTheme, withAlpha } from "@/theme";
+import { useTabletColumn } from "@/theme/useTabletColumn";
 
 /**
  * The countdown redraws at this rate. Nothing is *counted* here — the remaining time is
@@ -34,8 +46,8 @@ function delayLabel(seconds: number): string {
   // `count` is what picks the singular sibling key; `n` is what is interpolated. One
   // preset is exactly a minute, and "1 minutes" is the kind of thing a reviewer screenshots.
   return seconds < 60
-    ? t('delaySeconds', { n: seconds, count: seconds })
-    : t('delayMinutes', { n: minutes, count: minutes });
+    ? t("delaySeconds", { n: seconds, count: seconds })
+    : t("delayMinutes", { n: minutes, count: minutes });
 }
 
 export default function Home() {
@@ -74,8 +86,8 @@ export default function Home() {
   // Returning from the background resyncs at once rather than on the next tick, so the first
   // frame after a return is already right — including a call that came due while away.
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setNow(Date.now());
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") setNow(Date.now());
     });
     return () => sub.remove();
   }, []);
@@ -83,13 +95,13 @@ export default function Home() {
   // The call arriving is a navigation, not a render: it happens the moment the stored time
   // passes, including immediately on open if it passed while the app was closed.
   useEffect(() => {
-    if (pending && isDue(pending.at, now)) router.replace('/call');
+    if (pending && isDue(pending.at, now)) router.replace("/call");
   }, [pending, now, router]);
 
   const pickDelay = useCallback(
     (seconds: number) => {
       if (!canUseDelay(seconds, isPremium)) {
-        router.push('/paywall');
+        router.push("/paywall");
         return;
       }
       setDelay(seconds);
@@ -104,7 +116,25 @@ export default function Home() {
     // countdown frame then rounds up — a 15-second call that opens saying 0:16.
     const at = Date.now();
     setNow(at);
-    if (schedule(selected.id, delay, isPremium, at) === 'locked-delay') router.push('/paywall');
+    if (schedule(selected.id, delay, isPremium, at) === "locked-delay") {
+      router.push("/paywall");
+      return;
+    }
+    // The in-app countdown above is the fallback: this is what actually rings when the app
+    // is backgrounded or the phone is locked when the call comes due. Best-effort and
+    // non-blocking — a permission refusal or OS error here must never stop the call itself
+    // from being scheduled.
+    void scheduleCallNotification({
+      callerId: selected.id,
+      callerName: selected.name,
+      vibrationPattern: patternById(selected.patternId).pattern,
+      at,
+    });
+  };
+
+  const cancelPending = () => {
+    cancel();
+    void cancelCallNotification();
   };
 
   return (
@@ -116,19 +146,19 @@ export default function Home() {
           paddingHorizontal: spacing.base,
           paddingBottom: spacing.xl,
           gap: spacing.base,
-        
+
           ...tabletColumn,
         }}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.titleRow}>
           <Text variant="title" style={styles.grow}>
-            {t('appName')}
+            {t("appName")}
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('settingsTitle')}
-            onPress={() => router.push('/settings')}
+            accessibilityLabel={t("settingsTitle")}
+            onPress={() => router.push("/settings")}
             hitSlop={8}
             style={styles.iconSlot}
           >
@@ -137,14 +167,14 @@ export default function Home() {
         </View>
 
         <Text variant="caption" tone="muted">
-          {t('silentNote')}
+          {t("silentNote")}
         </Text>
 
-        <Text variant="heading">{t('callersTitle')}</Text>
+        <Text variant="heading">{t("callersTitle")}</Text>
 
         {callers.length === 0 ? (
           <Text variant="body" tone="muted">
-            {t('noCallers')}
+            {t("noCallers")}
           </Text>
         ) : (
           callers.map((caller) => {
@@ -162,20 +192,29 @@ export default function Home() {
                   accessibilityState={{ selected: isSelected }}
                   onPress={() => setSelectedId(caller.id)}
                   onLongPress={() =>
-                    router.push({ pathname: '/caller', params: { id: caller.id } })
+                    router.push({
+                      pathname: "/caller",
+                      params: { id: caller.id },
+                    })
                   }
                   style={styles.callerRow}
                 >
                   <View
                     style={[
                       styles.avatar,
-                      { borderRadius: radius.full, backgroundColor: withAlpha(colors.accent, 0.18) },
+                      {
+                        borderRadius: radius.full,
+                        backgroundColor: withAlpha(colors.accent, 0.18),
+                      },
                     ]}
                   >
                     {caller.photoUri ? (
                       <Image
                         source={{ uri: caller.photoUri }}
-                        style={[styles.avatarImage, { borderRadius: radius.full }]}
+                        style={[
+                          styles.avatarImage,
+                          { borderRadius: radius.full },
+                        ]}
                         accessibilityIgnoresInvertColors
                       />
                     ) : (
@@ -192,9 +231,14 @@ export default function Home() {
                   </View>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={t('editCaller', { name: caller.name })}
+                    accessibilityLabel={t("editCaller", { name: caller.name })}
                     hitSlop={8}
-                    onPress={() => router.push({ pathname: '/caller', params: { id: caller.id } })}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/caller",
+                        params: { id: caller.id },
+                      })
+                    }
                     style={styles.iconSlot}
                   >
                     <Feather name="edit-2" size={18} color={colors.textMuted} />
@@ -206,14 +250,14 @@ export default function Home() {
         )}
 
         <Button
-          label={t('newCaller')}
+          label={t("newCaller")}
           variant="secondary"
           icon="user-plus"
-          onPress={() => router.push('/caller')}
+          onPress={() => router.push("/caller")}
         />
 
         <Text variant="heading" style={{ marginTop: spacing.base }}>
-          {t('delayTitle')}
+          {t("delayTitle")}
         </Text>
         <View style={[styles.chipRow, { gap: spacing.sm }]}>
           {DELAY_PRESETS.map((seconds) => {
@@ -226,7 +270,9 @@ export default function Home() {
                 accessibilityRole="button"
                 // A locked chip says it is locked in its own label: a screen reader user
                 // must not have to press it to find out.
-                accessibilityLabel={allowed ? label : t('delayLocked', { label })}
+                accessibilityLabel={
+                  allowed ? label : t("delayLocked", { label })
+                }
                 accessibilityState={{ selected: isChosen, disabled: !allowed }}
                 onPress={() => pickDelay(seconds)}
                 style={[
@@ -236,14 +282,18 @@ export default function Home() {
                     paddingHorizontal: spacing.base,
                     borderWidth: StyleSheet.hairlineWidth,
                     borderColor: isChosen ? colors.accent : colors.border,
-                    backgroundColor: isChosen ? withAlpha(colors.accent, 0.16) : colors.surface,
+                    backgroundColor: isChosen
+                      ? withAlpha(colors.accent, 0.16)
+                      : colors.surface,
                   },
                 ]}
               >
-                <Text variant="body" tone={allowed ? 'default' : 'muted'}>
+                <Text variant="body" tone={allowed ? "default" : "muted"}>
                   {label}
                 </Text>
-                {allowed ? null : <Feather name="lock" size={14} color={colors.textMuted} />}
+                {allowed ? null : (
+                  <Feather name="lock" size={14} color={colors.textMuted} />
+                )}
               </Pressable>
             );
           })}
@@ -252,13 +302,19 @@ export default function Home() {
         {pending ? (
           <>
             <Text variant="display">
-              {t('ringingIn', { time: formatCountdown(msUntil(pending.at, now)) })}
+              {t("ringingIn", {
+                time: formatCountdown(msUntil(pending.at, now)),
+              })}
             </Text>
-            <Button label={t('cancelCall')} variant="danger" onPress={cancel} />
+            <Button
+              label={t("cancelCall")}
+              variant="danger"
+              onPress={cancelPending}
+            />
           </>
         ) : (
           <Button
-            label={t('scheduleCta')}
+            label={t("scheduleCta")}
             icon="phone-incoming"
             onPress={start}
             disabled={!selected}
@@ -271,21 +327,26 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
+  titleRow: { flexDirection: "row", alignItems: "center" },
   grow: { flex: 1 },
   iconSlot: {
     minWidth: MIN_TOUCH_TARGET,
     minHeight: MIN_TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  callerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  callerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarImage: { width: 48, height: 48 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
+  chipRow: { flexDirection: "row", flexWrap: "wrap" },
   chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     minHeight: MIN_TOUCH_TARGET,
   },
